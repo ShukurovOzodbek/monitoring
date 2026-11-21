@@ -8,6 +8,56 @@ public enum PreviewData {
     private static let gb: UInt64 = 1_000_000_000
     private static let chrome = "/Applications/Google Chrome.app"
 
+    public static let cleanup: CleanupStore = {
+        let modified = date
+        func item(_ kind: CleanupCategoryKind, _ path: String, _ size: UInt64,
+                  files: Int = 1, directory: Bool = false, admin: Bool = false, recommended: Bool = true,
+                  skip: CleanupSkipReason? = nil, removal: CleanupItem.Removal = .removeItem,
+                  detail: String? = nil) -> CleanupItem {
+            let url = URL(fileURLWithPath: path, isDirectory: directory)
+            return CleanupItem(url: url, name: url.lastPathComponent, category: kind, size: size,
+                               fileCount: files, modified: modified, isDirectory: directory, requiresAdmin: admin,
+                               removal: removal, skipReason: skip, recommended: recommended, detail: detail)
+        }
+
+        let home = "/Users/preview"
+        let categories: [CleanupCategoryKind: CleanupCategory] = [
+            .temporaryFiles: .init(kind: .temporaryFiles, state: .ready, items: [
+                item(.temporaryFiles, "/private/tmp/export-staging", 920_000_000, files: 68, directory: true),
+                item(.temporaryFiles, "/private/tmp/editor-session", 58_000_000, skip: .inUse),
+                item(.temporaryFiles, "/private/tmp/postgresql", 20_000_000, files: 4, directory: true, skip: .containsSockets),
+                item(.temporaryFiles, "/private/tmp/com.apple.session.lock", 4096, skip: .protected)
+            ], location: URL(fileURLWithPath: "/private/tmp")),
+            .userCaches: .init(kind: .userCaches, state: .ready, items: [
+                item(.userCaches, home + "/Library/Caches/com.spotify.client", 1_800_000_000, files: 819,
+                     directory: true, removal: .emptyFolder, detail: "Spotify media cache"),
+                item(.userCaches, home + "/Library/Caches/com.google.Chrome", 740_000_000, files: 612,
+                     directory: true, skip: .runningApp, removal: .emptyFolder)
+            ], location: URL(fileURLWithPath: home + "/Library/Caches")),
+            .developer: .init(kind: .developer, state: .ready, items: [
+                item(.developer, home + "/.npm/_cacache", 6_700_000_000, files: 4200,
+                     directory: true, removal: .emptyFolder, detail: "npm download cache"),
+                item(.developer, home + "/.gradle/caches", 4_400_000_000, files: 2300,
+                     directory: true, removal: .emptyFolder, detail: "Gradle dependency cache"),
+                item(.developer, home + "/Library/Developer/Xcode/DerivedData", 2_800_000_000, files: 1800,
+                     directory: true, removal: .emptyFolder, detail: "Xcode build products")
+            ], location: URL(fileURLWithPath: home + "/Library/Developer")),
+            .trash: .init(kind: .trash, state: .needsFullDiskAccess, location: URL(fileURLWithPath: home + "/.Trash")),
+            .downloads: .init(kind: .downloads, state: .ready, items: [
+                item(.downloads, home + "/Downloads/DesignTool.dmg", 840_000_000, recommended: false, detail: "Installer"),
+                item(.downloads, home + "/Downloads/project-archive.zip", 370_000_000, recommended: false)
+            ], location: URL(fileURLWithPath: home + "/Downloads")),
+            .sleepImage: .init(kind: .sleepImage, state: .ready, items: [
+                item(.sleepImage, "/private/var/vm/sleepimage", 1_100_000_000, admin: true, recommended: false)
+            ], location: URL(fileURLWithPath: "/private/var/vm")),
+            .swap: .init(kind: .swap, state: .ready, items: [
+                item(.swap, "/private/var/vm/swapfile0", 2 * gb, recommended: false, removal: .none)
+            ], location: URL(fileURLWithPath: "/private/var/vm"), note: "2 GB of swap is currently in use.")
+        ]
+        return CleanupStore(preview: CleanupCategoryKind.allCases.map { categories[$0] ?? .init(kind: $0, state: .ready) },
+                            freeSpace: 48 * gb)
+    }()
+
     static let processes: [ProcessSample] = {
         let apps: [(String, String)] = [
             ("Google Chrome", chrome),
