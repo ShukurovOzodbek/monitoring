@@ -65,7 +65,12 @@ public struct RootView: View {
     @Environment(MonitorStore.self) private var store
     @State private var selection: MonitorTab? = .overview
 
-    public init() {}
+    @Binding private var cleanCacheRequested: Bool
+    @State private var cleanCachePresented = false
+
+    public init(cleanCacheRequested: Binding<Bool> = .constant(false)) {
+        _cleanCacheRequested = cleanCacheRequested
+    }
 
     public var body: some View {
         NavigationSplitView {
@@ -92,10 +97,20 @@ public struct RootView: View {
                 case .processes: ProcessesView()
                 case .watched: WatchedView()
                 case .endpoints: EndpointsView()
-                default: MetricsView(tab: tab) { selection = $0 }
+                default:
+                    MetricsView(tab: tab, cleanCachePresented: $cleanCachePresented) { selection = $0 }
                 }
             }
             .navigationTitle(tab.rawValue)
+        }
+        .onChange(of: cleanCacheRequested, initial: true) { _, requested in
+            guard requested else { return }
+            selection = .memory
+            cleanCachePresented = true
+            cleanCacheRequested = false
+        }
+        .sheet(isPresented: $cleanCachePresented, onDismiss: store.dismissCacheCleanResult) {
+            CleanCacheView()
         }
         .onChange(of: store.hasBattery) { _, available in
             if !available && selection == .battery { selection = .overview }

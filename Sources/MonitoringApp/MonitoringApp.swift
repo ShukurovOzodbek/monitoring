@@ -7,28 +7,37 @@ import MonitorUI
 @MainActor
 struct MonitoringApp: App {
     @State private var store: MonitorStore
+    @State private var cleanCacheRequested = false
+    @State private var activated = false
 
     init() {
-        let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
-        let store = isPreview ? PreviewData.store : MonitorStore()
-        _store = State(initialValue: store)
-        if !isPreview {
-            NSApplication.shared.setActivationPolicy(.regular)
-            NSApplication.shared.activate()
-            store.start()
+        #if DEBUG && !MONITORING_SKIP_PREVIEWS
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            _store = State(initialValue: PreviewData.store)
+            return
         }
+        #endif
+        let store = MonitorStore()
+        _store = State(initialValue: store)
+        NSApplication.shared.setActivationPolicy(.regular)
+        store.start()
     }
 
     var body: some Scene {
-        WindowGroup("Monitoring", id: "monitor") {
-            RootView()
+        Window("Monitoring", id: "monitor") {
+            RootView(cleanCacheRequested: $cleanCacheRequested)
                 .environment(store)
                 .frame(minWidth: 820, minHeight: 560)
+                .task {
+                    guard !activated, !store.isPreview else { return }
+                    activated = true
+                    NSApplication.shared.activate()
+                }
         }
         .defaultSize(width: 1220, height: 780)
 
         MenuBarExtra {
-            MenuPanel().environment(store)
+            MenuPanel(cleanCacheRequested: $cleanCacheRequested).environment(store)
         } label: {
             MenuLabel().environment(store)
         }
@@ -55,6 +64,7 @@ private struct MenuLabel: View {
 private struct MenuPanel: View {
     @Environment(MonitorStore.self) private var store
     @Environment(\.openWindow) private var openWindow
+    @Binding var cleanCacheRequested: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -86,20 +96,29 @@ private struct MenuPanel: View {
                 }
             }
             Divider()
-            CleanCacheButton().buttonStyle(.borderedProminent)
+            Button("Clean Cache", systemImage: "sparkles") {
+                cleanCacheRequested = true
+                showMonitor()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(store.isPreview)
             HStack {
                 Button("Open Monitor", systemImage: "macwindow") {
-                    openWindow(id: "monitor")
-                    NSApplication.shared.activate()
+                    showMonitor()
                 }
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .disabled(store === PreviewData.store)
+                    .disabled(store.isPreview)
             }
         }
         .monospacedDigit()
         .padding(18)
         .frame(width: 310)
+    }
+
+    private func showMonitor() {
+        openWindow(id: "monitor")
+        NSApplication.shared.activate()
     }
 }
 
@@ -128,7 +147,7 @@ private struct MonitorSettings: View {
     MenuLabel().padding().environment(PreviewData.store)
 }
 #Preview("Menu") {
-    MenuPanel().environment(PreviewData.store)
+    MenuPanel(cleanCacheRequested: .constant(false)).environment(PreviewData.store)
 }
 #Preview("Settings") {
     MonitorSettings().environment(PreviewData.store)

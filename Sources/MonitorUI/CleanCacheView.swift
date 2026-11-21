@@ -1,20 +1,6 @@
 import SwiftUI
 import MonitorCore
 
-public struct CleanCacheButton: View {
-    @Environment(MonitorStore.self) private var store
-    @State private var presented = false
-
-    public init() {}
-
-    public var body: some View {
-        Button("Clean Cache", systemImage: "sparkles") { presented = true }
-            .sheet(isPresented: $presented, onDismiss: store.dismissCacheCleanResult) {
-                CleanCacheView()
-            }
-    }
-}
-
 struct CleanCacheView: View {
     @Environment(MonitorStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -40,7 +26,7 @@ struct CleanCacheView: View {
                         Task { await store.cleanCaches(selected) }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(options.isEmpty || store === PreviewData.store)
+                    .disabled(options.isEmpty || store.isPreview)
                 }
             case .running:
                 ProgressView("Cleaning selected caches…")
@@ -102,9 +88,6 @@ struct CleanCacheView: View {
 }
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
-#Preview("Cache button") {
-    CleanCacheButton().padding(24).environment(PreviewData.store)
-}
 #Preview("Cache options") {
     CleanCacheView().environment(PreviewData.store)
 }
