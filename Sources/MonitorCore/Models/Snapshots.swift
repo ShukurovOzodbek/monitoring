@@ -376,6 +376,8 @@ public struct ProcessHistoryPoint: Sendable, Hashable, Identifiable {
 /// Rolling time series for charts. Oldest first.
 public struct MetricHistory: Sendable, Hashable {
     public var cpu: [MetricPoint] = []            // % total
+    public var cpuUser: [MetricPoint] = []        // % user part of `cpu`
+    public var cpuSystem: [MetricPoint] = []      // % system part of `cpu`
     public var memoryUsed: [MetricPoint] = []     // bytes
     public var networkIn: [MetricPoint] = []      // bytes/s
     public var networkOut: [MetricPoint] = []
@@ -383,10 +385,12 @@ public struct MetricHistory: Sendable, Hashable {
     public var diskWrite: [MetricPoint] = []
     public var batteryLevel: [MetricPoint] = []   // %
 
-    public init(cpu: [MetricPoint] = [], memoryUsed: [MetricPoint] = [], networkIn: [MetricPoint] = [],
+    public init(cpu: [MetricPoint] = [], cpuUser: [MetricPoint] = [], cpuSystem: [MetricPoint] = [], memoryUsed: [MetricPoint] = [], networkIn: [MetricPoint] = [],
                 networkOut: [MetricPoint] = [], diskRead: [MetricPoint] = [], diskWrite: [MetricPoint] = [],
                 batteryLevel: [MetricPoint] = []) {
         self.cpu = cpu
+        self.cpuUser = cpuUser
+        self.cpuSystem = cpuSystem
         self.memoryUsed = memoryUsed
         self.networkIn = networkIn
         self.networkOut = networkOut

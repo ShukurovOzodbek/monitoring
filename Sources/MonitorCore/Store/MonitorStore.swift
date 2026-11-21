@@ -69,7 +69,8 @@ public final class MonitorStore {
     private var samplingTask: Task<Void, Never>?
     private var endpointTasks: [UUID: Task<Void, Never>] = [:]
     private let defaults: UserDefaults
-    private let isPreview: Bool
+    /// True for the fixture store used by SwiftUI previews. Actions are no-ops there.
+    public let isPreview: Bool
 
     private enum Keys {
         static let endpoints = "monitoring.endpoints"
@@ -87,6 +88,8 @@ public final class MonitorStore {
 
     /// A store filled with fixed data that never samples. For SwiftUI previews.
     public init(preview snapshot: SystemSnapshot, systemInfo: SystemInfo, history: MetricHistory = MetricHistory(),
+                processHistory: [Int32: [ProcessHistoryPoint]] = [:],
+                watchedHistory: [String: [ProcessHistoryPoint]] = [:],
                 watchedProcessNames: [String] = [], endpoints: [Endpoint] = [],
                 endpointStatuses: [UUID: EndpointStatus] = [:]) {
         self.defaults = UserDefaults(suiteName: "monitoring.preview") ?? .standard
@@ -94,6 +97,8 @@ public final class MonitorStore {
         self.sampler = nil
         self.systemInfo = systemInfo
         self.history = history
+        self.processHistory = processHistory
+        self.watchedHistory = watchedHistory
         self.watchedProcessNames = watchedProcessNames
         self.endpoints = endpoints
         self.endpointStatuses = endpointStatuses
@@ -178,6 +183,7 @@ public final class MonitorStore {
     /// processes this throws `.permissionDenied`; call again with
     /// `asAdministrator: true` to show the password prompt.
     public func terminate(pid: Int32, force: Bool = false, asAdministrator: Bool = false) async throws {
+        guard !isPreview else { return }
         try await ProcessActions.signal(pid: pid, force: force, asAdministrator: asAdministrator)
     }
 
@@ -232,8 +238,10 @@ public final class MonitorStore {
 
     /// Runs a check immediately, outside the regular schedule.
     public func checkNow(id: UUID) async {
-        guard let endpoint = endpoints.first(where: { $0.id == id }) else { return }
+        guard !isPreview, let endpoint = endpoints.first(where: { $0.id == id }) else { return }
         let result = await EndpointChecker.check(endpoint)
+        // Drop the result if the endpoint was deleted or retargeted while checking.
+        guard endpoints.first(where: { $0.id == id })?.kind == endpoint.kind else { return }
         endpointStatuses[id, default: EndpointStatus()].record(result)
     }
 
@@ -243,7 +251,8 @@ public final class MonitorStore {
         endpointTasks[id] = Task { [weak self] in
             while !Task.isCancelled {
                 let result = await EndpointChecker.check(endpoint)
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled,
+                      self.endpoints.first(where: { $0.id == id })?.kind == endpoint.kind else { return }
                 self.endpointStatuses[id, default: EndpointStatus()].record(result)
                 try? await Task.sleep(for: .seconds(endpoint.interval))
             }
@@ -296,6 +305,8 @@ public final class MonitorStore {
             if overflow > 0 { h[keyPath: keyPath].removeFirst(overflow) }
         }
         append(\.cpu, snapshot.cpu.total)
+        append(\.cpuUser, snapshot.cpu.user)
+        append(\.cpuSystem, snapshot.cpu.system)
         append(\.memoryUsed, Double(snapshot.memory.used))
         append(\.networkIn, snapshot.network.inRate)
         append(\.networkOut, snapshot.network.outRate)

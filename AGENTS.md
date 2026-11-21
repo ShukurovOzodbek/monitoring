@@ -37,7 +37,7 @@ passes it to Claude.
 
 - Live values: `systemInfo`, `cpu`, `memory`, `network`, `disk`, `battery` (nil without
   a battery), `hasBattery`, `volumes`, `processes`, `lastUpdated`.
-- History for charts: `history` (`MetricHistory`: cpu, memoryUsed, networkIn/Out,
+- History for charts: `history` (`MetricHistory`: cpu, cpuUser, cpuSystem, memoryUsed, networkIn/Out,
   diskRead/Write, batteryLevel; 300 points), `processHistory[pid]` (120 points), and
   `watchedHistory[name]`.
 - Processes: `sortedProcesses(by:matching:)`, `processGroups` (an app plus its
@@ -53,6 +53,7 @@ passes it to Claude.
 - Cache: `cleanCaches(_ options: CacheCleanOptions = .all) async`, `cacheCleanState`
   (`.idle/.running/.finished(report)/.failed(msg)`), and `dismissCacheCleanResult()`.
 - Settings: `sampleInterval` and `setSampleInterval(_:)` (0.5 to 10 s).
+- `isPreview`: true for the fixture store. Actions are no-ops there, so use it instead of comparing against `PreviewData.store`.
 
 Units: bytes, bytes per second, percent 0 to 100. `ProcessSample.cpuPercent` uses
 100 = one core, so it can exceed 100. `ProcessSample.quality == .limited` means a
