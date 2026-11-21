@@ -4,6 +4,7 @@ import MonitorCore
 struct MetricsView: View {
     @Environment(MonitorStore.self) private var store
     let tab: MonitorTab
+    @Binding var cleanCachePresented: Bool
     var open: (MonitorTab) -> Void = { _ in }
 
     var body: some View {
@@ -35,7 +36,7 @@ struct MetricsView: View {
                     .foregroundStyle(.secondary)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 16, alignment: .top)], spacing: 16) {
-                overviewCard(.cpu, series: cpuSeries, sort: .cpu)
+                overviewCard(.cpu, series: [.init(name: "Total", points: store.history.cpu, color: .cyan)], sort: .cpu)
                 overviewCard(.memory, series: memorySeries, sort: .memory)
                 overviewCard(.network, series: networkSeries, sort: .network)
                 overviewCard(.disk, series: diskSeries, sort: .disk)
@@ -69,7 +70,8 @@ struct MetricsView: View {
     }
 
     private var cpuSeries: [MetricChart.Series] {
-        [.init(name: "Total", points: store.history.cpu, color: .cyan)]
+        [.init(name: "User", points: store.history.cpuUser, color: .cyan),
+         .init(name: "System", points: store.history.cpuSystem, color: .blue)]
     }
 
     private var memorySeries: [MetricChart.Series] {
@@ -95,7 +97,7 @@ struct MetricsView: View {
         return Group {
             Panel(title: store.systemInfo.chipName, symbol: "cpu", tint: .cyan) {
                 headline(Format.percent(sample.total))
-                MetricChart(series: cpuSeries, range: 0...100, format: Format.percent)
+                MetricChart(series: cpuSeries, stacked: true, range: 0...100, format: Format.percent)
                 GeometryReader { geometry in
                     let width = geometry.size.width
                     HStack(spacing: 0) {
@@ -156,7 +158,8 @@ struct MetricsView: View {
                     headline(Format.bytes(sample.used))
                     Text("of \(Format.bytes(sample.total))").foregroundStyle(.secondary)
                     Spacer()
-                    CleanCacheButton().buttonStyle(.borderedProminent)
+                    Button("Clean Cache", systemImage: "sparkles") { cleanCachePresented = true }
+                        .buttonStyle(.borderedProminent)
                 }
                 Gauge(value: min(max(sample.usedFraction, 0), 1)) {
                     Text("Memory used")
@@ -309,8 +312,6 @@ struct MetricsView: View {
     private func headline(_ value: String) -> some View {
         Text(value).font(.system(.largeTitle, design: .rounded, weight: .semibold))
             .monospacedDigit()
-            .contentTransition(.numericText())
-            .animation(.easeInOut(duration: 0.2), value: value)
     }
 
     private func rateStat(_ title: String, _ value: Double, color: Color) -> some View {
@@ -329,9 +330,10 @@ struct MetricsView: View {
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
 #Preview("Overview") {
-    MetricsView(tab: .overview).frame(width: 890, height: 700).environment(PreviewData.store)
+    MetricsView(tab: .overview, cleanCachePresented: .constant(false)).frame(width: 890, height: 700).environment(PreviewData.store)
 }
 #Preview("Memory") {
-    MetricsView(tab: .memory).frame(width: 760, height: 700).environment(PreviewData.store)
+    MetricsView(tab: .memory, cleanCachePresented: .constant(false))
+        .frame(width: 760, height: 700).environment(PreviewData.store)
 }
 #endif
