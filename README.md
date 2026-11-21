@@ -42,6 +42,18 @@ Open Clean Cache from Memory or the menu bar and choose which caches to clear.
 
 Apps keep running. Memory and DNS cleaning share a macOS administrator prompt. The result shows memory and disk space freed, cache folders cleaned or skipped, and any warnings.
 
+## Disk Cleanup
+
+Open Cleanup from the sidebar or Overview, or choose Free Up Space from Capacity or the menu bar. The first visit scans the startup disk and shows free, reclaimable, and selected space.
+
+Cleanup scans temporary files, app and system caches, logs and crash reports, developer caches, Trash, Downloads, large files in your home folder, iPhone and iPad backups, local Time Machine snapshots, the sleep image, and swap. Open a category to review the items and their sizes. Right-click a folder to browse its contents or show it in Finder.
+
+The scan marks known protected items, including files held open, caches of running apps, temporary folders with sockets, and Apple system data. These items are excluded from selection. Cleanup limits removal to known cleanup locations and eligible files in your home folder. Swap is informational. Downloads, large files, and device backups go to Trash by default. Emptying Trash releases the space used by items moved there.
+
+**Like a Fresh Restart** cleans eligible temporary files and app and system caches, resets the Quick Look thumbnail cache, frees cached files from RAM, and flushes DNS. Apps keep running and macOS asks for the administrator password. Swap is left in place. Restart the Mac to clear it. The result shows measured free space separately because APFS accounting can make it differ from the sum of deleted items.
+
+If a category such as Trash requires Full Disk Access, use **Grant Full Disk Access** to open System Settings. Enable Monitoring under Privacy & Security → Full Disk Access, then return to Cleanup and choose **Rescan**.
+
 ## System process data
 
 A lock marks processes with limited data. Monitoring can show CPU usage and resident memory (RSS) for these processes. Threads and per-process disk rates appear as **—** when unavailable. Processes that Monitoring can inspect directly report memory footprint.
