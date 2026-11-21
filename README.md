@@ -32,6 +32,14 @@ Build and copy it to `/Applications`.
 ./scripts/bundle.sh --install
 ```
 
+## Clipboard History
+
+Open the installed Monitoring app once to start its background clipboard helper. The helper starts at login, keeps running after Monitoring quits, and is unaffected by Swift Quit. Use **Clipboard** in the sidebar or Settings to check its status, disable it, or clear saved history. The menu bar also opens clipboard history.
+
+Press **⌥V** to search and preview recent copies. This shortcut replaces typing **√**. Use **↑/↓** to select, **Return** to paste, **⌘1–9** to pick directly, **⌘⌫** to delete an entry, or **Esc** to close. Choose **Enable auto-paste** to grant the helper Accessibility permission. Until you grant permission, picking an entry copies it and you can paste with **⌘V**.
+
+History records plain text and skips copies marked private by apps such as password managers. Entries expire after 24 hours and are stored only on this Mac in `~/Library/Application Support/Monitoring`, with file permissions restricted to your user.
+
 ## Clean Cache
 
 Open Clean Cache from Memory or the menu bar and choose which caches to clear.
