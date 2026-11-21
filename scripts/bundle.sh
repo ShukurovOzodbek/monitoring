@@ -10,7 +10,8 @@ cd "$(dirname "$0")/.."
 swift build -c release
 binary_dir="$(swift build -c release --show-bin-path)"
 app="build/Monitoring.app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+install -m 644 Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 install -m 755 "$binary_dir/MonitoringApp" "$app/Contents/MacOS/Monitoring"
 
 cat > "$app/Contents/Info.plist" <<'PLIST'
@@ -22,6 +23,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <string>com.ozodbek.monitoring</string>
     <key>CFBundleName</key>
     <string>Monitoring</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleExecutable</key>
     <string>Monitoring</string>
     <key>CFBundlePackageType</key>
