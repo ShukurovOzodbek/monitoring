@@ -61,8 +61,11 @@ public final class CleanupStore {
     /// True if any selected item needs the admin password.
     public var selectionNeedsAdmin: Bool { selectedItems.contains(where: \.requiresAdmin) }
 
+    /// Only the user's own files: root-owned caches may be open by system daemons
+    /// that a non-root lsof can't see.
     private var restartCleanupItems: [CleanupItem] {
-        categories.filter(\.kind.isRestartEquivalent).flatMap(\.items).filter(\.selectedByDefault)
+        categories.filter(\.kind.isRestartEquivalent).flatMap(\.items)
+            .filter { $0.selectedByDefault && !$0.requiresAdmin }
     }
 
     // MARK: Scanning
@@ -121,6 +124,13 @@ public final class CleanupStore {
     }
 
     public func clearSelection() { selection = [] }
+
+    /// Selects the recommended items of one category, keeping choices in other categories.
+    public func selectRecommended(in kind: CleanupCategoryKind) {
+        let items = category(kind)?.items ?? []
+        selection.subtract(items.map(\.id))
+        selection.formUnion(items.filter(\.selectedByDefault).map(\.id))
+    }
 
     public func selectedSize(in kind: CleanupCategoryKind) -> UInt64 {
         (category(kind)?.items ?? []).filter { selection.contains($0.id) && $0.isRemovable }
@@ -205,7 +215,26 @@ public final class CleanupStore {
 
     /// True if the browser may offer "Move to Trash" / "Delete" for this entry.
     public func canDelete(_ entry: DirectoryEntry) -> Bool {
-        CleanupGuard.isAllowed(entry.url, category: nil)
+        CleanupGuard.isAllowed(entry.url, category: nil) && browserBlockReason(entry.url) == nil
+    }
+
+    /// Cheap, name-based protections (same rules as the scanner).
+    private func browserBlockReason(_ url: URL) -> CleanupSkipReason? {
+        let name = url.lastPathComponent
+        let parent = CleanupGuard.normalize(url.deletingLastPathComponent().path)
+        let cacheRoots = [CleanupPaths.userCaches, CleanupPaths.systemCaches, CleanupPaths.userCache, CleanupPaths.userTemp,
+                          CleanupPaths.tmp].compactMap { $0 }.map { CleanupGuard.normalize($0.path) }
+        // Apple data anywhere inside cache/temp roots, at any depth.
+        if name.hasPrefix("com.apple.") && cacheRoots.contains(where: { parent == $0 || parent.hasPrefix($0 + "/") }) {
+            return .protected
+        }
+        if cacheRoots.contains(parent) {
+            if CacheCleaner.protectedPrefixes.contains(where: { name.hasPrefix($0) }) { return .protected }
+            let context = CleanupContext(openFiles: OpenFiles(paths: []), runningBundleIDs:
+                                            Set(runningBundleIDs().map { $0.lowercased() }), now: Date(), uid: getuid())
+            if CleanupScanner.belongsToRunningApp(name, context) { return .runningApp }
+        }
+        return nil
     }
 
     /// Deletes or trashes entries picked in the browser. Returns bytes affected.
@@ -214,10 +243,14 @@ public final class CleanupStore {
         guard !isPreview else { return 0 }
         let allowed = entries.filter(canDelete)
         let open = OpenFiles.snapshot()
-        let blocked = allowed.filter { open.containsOpenFile(under: $0.url) }
-        if let first = blocked.first {
+        if let first = allowed.first(where: { open.containsOpenFile(under: $0.url) }) {
             throw CleanupError.inUse(first.name)
         }
+        // Expensive check last: live sockets mean a running service owns the folder.
+        let socketHolder = await Task.detached(priority: .userInitiated) {
+            allowed.first { $0.isDirectory && DiskUsage.stats(of: $0.url).containsSockets }
+        }.value
+        if let socketHolder { throw CleanupError.inUse(socketHolder.name) }
         let total = try await Task.detached(priority: .userInitiated) { () throws -> UInt64 in
             var total: UInt64 = 0
             for entry in allowed {
@@ -235,6 +268,14 @@ public final class CleanupStore {
             !allowed.contains { $0.url.path.hasPrefix(key.path) }
         }
         freeSpace = DiskUsage.freeSpace()
+        // Refresh categories whose items overlap what was removed, so totals stay right.
+        let removed = allowed.map { CleanupGuard.normalize($0.url.path) }
+        let affected = categories.filter { category in
+            let paths = category.items.map { CleanupGuard.normalize($0.url.path) }
+                + [category.location].compactMap { $0 }.map { CleanupGuard.normalize($0.path) }
+            return paths.contains { path in removed.contains { $0.hasPrefix(path + "/") || path.hasPrefix($0 + "/") || $0 == path } }
+        }.map(\.kind)
+        if !affected.isEmpty { await scan(affected) }
         return total
     }
 
