@@ -40,6 +40,16 @@ final class ProcessNetworkMonitor: @unchecked Sendable {
 
     private var isRunning: Bool { lock.withLock { running } }
 
+    /// nettop ignores the pty closing, so it would outlive the app (and leak one
+    /// nettop per launch) whenever the app exits. This wrapper kills it when the
+    /// app process is gone, even after a crash or kill -9, or when it's told to stop.
+    static let watchdogScript = """
+    /usr/bin/nettop -P -L 0 -d -s 1 -x -J bytes_in,bytes_out & n=$!
+    trap 'kill $n 2>/dev/null; exit 0' TERM INT HUP
+    while kill -0 "$PPID" 2>/dev/null && kill -0 "$n" 2>/dev/null; do sleep 1; done
+    kill $n 2>/dev/null
+    """
+
     private func runLoop() {
         while isRunning {
             runNettopOnce()
@@ -52,8 +62,8 @@ final class ProcessNetworkMonitor: @unchecked Sendable {
         guard openpty(&master, &slave, nil, nil, nil) == 0 else { return }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-        proc.arguments = ["-P", "-L", "0", "-d", "-s", "1", "-x", "-J", "bytes_in,bytes_out"]
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        proc.arguments = ["-c", Self.watchdogScript]
         proc.standardOutput = FileHandle(fileDescriptor: slave, closeOnDealloc: true)
         proc.standardError = FileHandle.nullDevice
         proc.standardInput = FileHandle.nullDevice
