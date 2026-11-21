@@ -25,11 +25,15 @@ struct MonitoringApp: App {
         _cleanup = State(initialValue: CleanupStore())
         NSApplication.shared.setActivationPolicy(.regular)
         store.start()
+        Task { await ClipboardAgentService.shared.ensureInstalled() }
     }
 
     var body: some Scene {
         Window("Monitoring", id: "monitor") {
-            RootView(cleanCacheRequested: $cleanCacheRequested, cleanupRequested: $cleanupRequested)
+            RootView(cleanCacheRequested: $cleanCacheRequested, cleanupRequested: $cleanupRequested) {
+                AnyView(Form { ClipboardSettingsSection(isPreview: store.isPreview) }
+                    .formStyle(.grouped))
+            }
                 .environment(store).environment(cleanup)
                 .frame(minWidth: 820, minHeight: 560)
                 .task {
@@ -112,6 +116,10 @@ private struct MenuPanel: View {
                 showMonitor()
             }
             .disabled(store.isPreview)
+            Button("Clipboard History ⌥V", systemImage: "doc.on.clipboard") {
+                ClipboardAgentService.showPanel()
+            }
+            .disabled(store.isPreview)
             HStack {
                 Button("Open Monitor", systemImage: "macwindow") {
                     showMonitor()
@@ -137,18 +145,21 @@ private struct MonitorSettings: View {
 
     var body: some View {
         Form {
-            Slider(value: Binding(get: { store.sampleInterval }, set: { store.setSampleInterval($0) }),
-                   in: 0.5...10, step: 0.5) {
-                Text("Sample interval")
-            } minimumValueLabel: {
-                Text("0.5 s")
-            } maximumValueLabel: {
-                Text("10 s")
+            Section("Monitoring") {
+                Slider(value: Binding(get: { store.sampleInterval }, set: { store.setSampleInterval($0) }),
+                       in: 0.5...10, step: 0.5) {
+                    Text("Sample interval")
+                } minimumValueLabel: {
+                    Text("0.5 s")
+                } maximumValueLabel: {
+                    Text("10 s")
+                }
+                Text("Update every \(Format.decimal(store.sampleInterval)) seconds").foregroundStyle(.secondary)
             }
-            Text("Update every \(Format.decimal(store.sampleInterval)) seconds").foregroundStyle(.secondary)
+            ClipboardSettingsSection(isPreview: store.isPreview)
         }
-        .padding(24)
-        .frame(width: 420)
+        .formStyle(.grouped)
+        .frame(width: 560, height: 530)
     }
 }
 

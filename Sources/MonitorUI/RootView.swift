@@ -4,7 +4,7 @@ import MonitorCore
 enum MonitorTab: String, CaseIterable, Identifiable {
     case overview = "Overview", processes = "Processes", cpu = "CPU", memory = "Memory"
     case network = "Network", disk = "Disk", battery = "Battery", watched = "Watched"
-    case endpoints = "Websites & Servers", capacity = "Capacity", cleanup = "Cleanup"
+    case endpoints = "Websites & Servers", capacity = "Capacity", cleanup = "Cleanup", clipboard = "Clipboard"
 
     var id: Self { self }
 
@@ -21,6 +21,7 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .endpoints: "globe"
         case .capacity: "chart.donut"
         case .cleanup: "sparkles"
+        case .clipboard: "doc.on.clipboard"
         }
     }
 
@@ -30,7 +31,7 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .cpu: .cyan
         case .memory: .purple
         case .network: .blue
-        case .disk: .orange
+        case .disk, .clipboard: .orange
         case .battery, .endpoints: .green
         case .watched: .pink
         case .capacity: .indigo
@@ -52,6 +53,7 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .watched: store.watchedProcessNames.count.formatted()
         case .endpoints:
             "\(endpointCount(.up, store))/\(store.endpoints.filter(\.isEnabled).count)"
+        case .clipboard: ""
         case .cleanup: cleanup.lastScan == nil ? "—" : Format.bytes(cleanup.reclaimableSize)
         case .capacity:
             store.volumes.first(where: \.isRoot).map { Format.percent($0.usedFraction * 100) } ?? "—"
@@ -72,24 +74,31 @@ public struct RootView: View {
     @Binding private var cleanCacheRequested: Bool
     @Binding private var cleanupRequested: Bool
     @State private var cleanCachePresented = false
+    private let clipboardContent: (() -> AnyView)?
 
     public init(cleanCacheRequested: Binding<Bool> = .constant(false),
-                cleanupRequested: Binding<Bool> = .constant(false)) {
+                cleanupRequested: Binding<Bool> = .constant(false),
+                clipboardContent: (() -> AnyView)? = nil) {
         _cleanCacheRequested = cleanCacheRequested
         _cleanupRequested = cleanupRequested
+        self.clipboardContent = clipboardContent
     }
 
     public var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section("Monitor") {
-                    ForEach(MonitorTab.allCases.filter { $0 != .battery || store.hasBattery }) { tab in
+                    ForEach(MonitorTab.allCases.filter {
+                        ($0 != .battery || store.hasBattery) && ($0 != .clipboard || clipboardContent != nil)
+                    }) { tab in
                         HStack(spacing: 8) {
                             Image(systemName: tab.symbol).foregroundStyle(tab.tint).frame(width: 18)
                             Text(tab.rawValue)
                             Spacer(minLength: 4)
-                            Text(tab.value(store, cleanup: cleanup)).font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                            if tab != .clipboard {
+                                Text(tab.value(store, cleanup: cleanup)).font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.vertical, 3)
                         .tag(tab)
@@ -102,6 +111,7 @@ public struct RootView: View {
             Group {
                 switch tab {
                 case .cleanup: CleanupView()
+                case .clipboard: clipboardContent?()
                 case .processes: ProcessesView()
                 case .watched: WatchedView()
                 case .endpoints: EndpointsView()
