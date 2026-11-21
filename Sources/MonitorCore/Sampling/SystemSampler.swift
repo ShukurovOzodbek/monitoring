@@ -14,13 +14,15 @@ actor SystemSampler {
 
     let hasBattery = BatterySampler.sample() != nil
 
-    func startStreams() { processNetwork.start() }
-    func stopStreams() { processNetwork.stop() }
+    /// Kept for API compatibility; per-process network sampling no longer needs a background stream.
+    func startStreams() {}
+    func stopStreams() {}
 
     func sample() -> SystemSnapshot {
         let now = Date()
+        processNetwork.update()
         let processList = processes.sample(networkRates: processNetwork.rates)
-        Self.killRunawayNettop(in: processList)
+        killLeakedNettop(in: processList)
 
         var battery: BatterySnapshot?
         if hasBattery, now.timeIntervalSince(lastBatteryDate) >= 5 {
@@ -46,19 +48,22 @@ actor SystemSampler {
         )
     }
 
-    /// nettop spins at 100%+ CPU once its terminal is gone (it retries the failed
-    /// write forever). A healthy one uses about 1%. Kill any that belong to this app
-    /// (child of our watchdog shell) or were orphaned by an earlier build (parent
-    /// launchd). The monitor restarts a fresh one. Someone's own interactive nettop
-    /// in Terminal is left alone.
-    static func killRunawayNettop(in processes: [ProcessSample]) {
-        let me = getpid()
-        let ourWrappers = Set(processes.filter { $0.parentPID == me }.map(\.pid))
-        for process in processes where process.name == "nettop" && process.cpuPercent > 50
-            && process.user == NSUserName()
-            && (process.parentPID == 1 || ourWrappers.contains(process.parentPID)) {
-            kill(process.pid, SIGKILL)
+    /// Builds before Nov 22 ran a streaming `nettop` (about 140% CPU) that could be
+    /// left behind, orphaned to launchd, when the app quit. Clean those up: same user,
+    /// parent launchd, hot for `leakStrikes` samples in a row. We no longer start any
+    /// long-running nettop, and someone's own nettop in Terminal has a shell as its
+    /// parent, so it's never touched.
+    static let leakStrikes = 5
+    private var nettopStrikes: [Int32: Int] = [:]
+
+    func killLeakedNettop(in processes: [ProcessSample]) {
+        var strikes: [Int32: Int] = [:]
+        for process in processes where process.name == "nettop" && process.parentPID == 1
+            && process.cpuPercent > 50 && process.user == NSUserName() {
+            let count = (nettopStrikes[process.pid] ?? 0) + 1
+            if count >= Self.leakStrikes { kill(process.pid, SIGKILL) } else { strikes[process.pid] = count }
         }
+        nettopStrikes = strikes
     }
 
     /// Forces battery and volumes to be re-read on the next tick.
