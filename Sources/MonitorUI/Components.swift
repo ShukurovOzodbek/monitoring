@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Charts
 import MonitorCore
@@ -41,12 +42,34 @@ struct MetricChart: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: compact ? 40 : 128)
+        } else if compact && !stacked {
+            Canvas { context, size in
+                let points = series.flatMap(\.points)
+                guard let first = points.map(\.date).min(), let last = points.map(\.date).max() else { return }
+                let duration = last.timeIntervalSince(first)
+                let bounds = range ?? 0...max(0, points.map(\.value).max() ?? 0)
+                let span = bounds.upperBound - bounds.lowerBound
+                for line in series {
+                    let positions = line.points.map { point in
+                        CGPoint(x: duration > 0 ? point.date.timeIntervalSince(first) / duration * size.width : size.width / 2,
+                                y: span > 0 ? (bounds.upperBound - point.value) / span * size.height : size.height)
+                    }
+                    guard let start = positions.first else { continue }
+                    var path = Path()
+                    path.move(to: start)
+                    path.addLines(Array(positions.dropFirst()))
+                    context.stroke(path, with: .color(line.color),
+                                   style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+            }
+            .padding(.vertical, 1)
+            .frame(height: 40)
         } else {
             let chart = Chart {
                 ForEach(series, id: \.name) { line in
                     ForEach(line.points) { point in
                         if stacked {
-                            AreaMark(x: .value("Time", point.date), y: .value("Value", point.value))
+                            AreaMark(x: .value("Time", point.date), y: .value("Value", point.value), stacking: .standard)
                                 .foregroundStyle(by: .value("Metric", line.name))
                         } else {
                             LineMark(x: .value("Time", point.date), y: .value("Value", point.value),
@@ -119,16 +142,38 @@ struct TopProcesses: View {
 
 @MainActor
 enum ProcessIcons {
-    private static let cache = NSCache<NSString, NSImage>()
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 512
+        return cache
+    }()
+    private static let colorSpace = NSScreen.main?.colorSpace?.cgColorSpace
+        ?? CGColorSpace(name: CGColorSpace.sRGB)!
     private static let generic = NSWorkspace.shared.icon(for: .unixExecutable)
 
-    static func image(bundle: String?, executable: String?) -> NSImage {
-        guard let path = bundle ?? executable else { return generic }
-        let key = path as NSString
+    static func image(bundle: String?, executable: String?, size: Int = 16) -> NSImage {
+        let path = bundle ?? executable
+        let key = "\(size):\(path ?? "")" as NSString
         if let icon = cache.object(forKey: key) { return icon }
-        let icon = FileManager.default.fileExists(atPath: path)
-            ? NSWorkspace.shared.icon(forFile: path) : generic
-        cache.countLimit = 512
+
+        let source = if let path, FileManager.default.fileExists(atPath: path) {
+            NSWorkspace.shared.icon(forFile: path)
+        } else {
+            generic
+        }
+        let pixels = size * 2
+        let bitmap = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8,
+                               bytesPerRow: 0, space: colorSpace,
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let bitmap else { return source }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: bitmap, flipped: false)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        source.draw(in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let raster = bitmap.makeImage() else { return source }
+        let icon = NSImage(cgImage: raster, size: NSSize(width: size, height: size))
         cache.setObject(icon, forKey: key)
         return icon
     }
