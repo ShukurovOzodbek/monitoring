@@ -7,6 +7,8 @@ import MonitorUI
 @MainActor
 struct MonitoringApp: App {
     @State private var store: MonitorStore
+    @State private var cleanup: CleanupStore
+    @State private var cleanupRequested = false
     @State private var cleanCacheRequested = false
     @State private var activated = false
 
@@ -14,19 +16,21 @@ struct MonitoringApp: App {
         #if DEBUG && !MONITORING_SKIP_PREVIEWS
         if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
             _store = State(initialValue: PreviewData.store)
+            _cleanup = State(initialValue: PreviewData.cleanup)
             return
         }
         #endif
         let store = MonitorStore()
         _store = State(initialValue: store)
+        _cleanup = State(initialValue: CleanupStore())
         NSApplication.shared.setActivationPolicy(.regular)
         store.start()
     }
 
     var body: some Scene {
         Window("Monitoring", id: "monitor") {
-            RootView(cleanCacheRequested: $cleanCacheRequested)
-                .environment(store)
+            RootView(cleanCacheRequested: $cleanCacheRequested, cleanupRequested: $cleanupRequested)
+                .environment(store).environment(cleanup)
                 .frame(minWidth: 820, minHeight: 560)
                 .task {
                     guard !activated, !store.isPreview else { return }
@@ -37,14 +41,14 @@ struct MonitoringApp: App {
         .defaultSize(width: 1220, height: 780)
 
         MenuBarExtra {
-            MenuPanel(cleanCacheRequested: $cleanCacheRequested).environment(store)
+            MenuPanel(cleanCacheRequested: $cleanCacheRequested, cleanupRequested: $cleanupRequested).environment(store).environment(cleanup)
         } label: {
-            MenuLabel().environment(store)
+            MenuLabel().environment(store).environment(cleanup)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            MonitorSettings().environment(store)
+            MonitorSettings().environment(store).environment(cleanup)
         }
     }
 }
@@ -65,6 +69,7 @@ private struct MenuPanel: View {
     @Environment(MonitorStore.self) private var store
     @Environment(\.openWindow) private var openWindow
     @Binding var cleanCacheRequested: Bool
+    @Binding var cleanupRequested: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -101,6 +106,11 @@ private struct MenuPanel: View {
                 showMonitor()
             }
             .buttonStyle(.borderedProminent)
+            .disabled(store.isPreview)
+            Button("Free Up Space…", systemImage: "sparkles") {
+                cleanupRequested = true
+                showMonitor()
+            }
             .disabled(store.isPreview)
             HStack {
                 Button("Open Monitor", systemImage: "macwindow") {
@@ -144,12 +154,12 @@ private struct MonitorSettings: View {
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
 #Preview("Menu label") {
-    MenuLabel().padding().environment(PreviewData.store)
+    MenuLabel().padding().environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #Preview("Menu") {
-    MenuPanel(cleanCacheRequested: .constant(false)).environment(PreviewData.store)
+    MenuPanel(cleanCacheRequested: .constant(false), cleanupRequested: .constant(false)).environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #Preview("Settings") {
-    MonitorSettings().environment(PreviewData.store)
+    MonitorSettings().environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #endif

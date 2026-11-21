@@ -4,7 +4,7 @@ import MonitorCore
 enum MonitorTab: String, CaseIterable, Identifiable {
     case overview = "Overview", processes = "Processes", cpu = "CPU", memory = "Memory"
     case network = "Network", disk = "Disk", battery = "Battery", watched = "Watched"
-    case endpoints = "Websites & Servers", capacity = "Capacity"
+    case endpoints = "Websites & Servers", capacity = "Capacity", cleanup = "Cleanup"
 
     var id: Self { self }
 
@@ -20,6 +20,7 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .watched: "pin"
         case .endpoints: "globe"
         case .capacity: "chart.donut"
+        case .cleanup: "sparkles"
         }
     }
 
@@ -33,11 +34,12 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .battery, .endpoints: .green
         case .watched: .pink
         case .capacity: .indigo
+        case .cleanup: .mint
         }
     }
 
     @MainActor
-    func value(_ store: MonitorStore) -> String {
+    func value(_ store: MonitorStore, cleanup: CleanupStore) -> String {
         switch self {
         case .overview:
             store.lastUpdated == nil ? "—" : "Live"
@@ -50,6 +52,7 @@ enum MonitorTab: String, CaseIterable, Identifiable {
         case .watched: store.watchedProcessNames.count.formatted()
         case .endpoints:
             "\(endpointCount(.up, store))/\(store.endpoints.filter(\.isEnabled).count)"
+        case .cleanup: cleanup.lastScan == nil ? "—" : Format.bytes(cleanup.reclaimableSize)
         case .capacity:
             store.volumes.first(where: \.isRoot).map { Format.percent($0.usedFraction * 100) } ?? "—"
         }
@@ -63,13 +66,17 @@ enum MonitorTab: String, CaseIterable, Identifiable {
 
 public struct RootView: View {
     @Environment(MonitorStore.self) private var store
+    @Environment(CleanupStore.self) private var cleanup
     @State private var selection: MonitorTab? = .overview
 
     @Binding private var cleanCacheRequested: Bool
+    @Binding private var cleanupRequested: Bool
     @State private var cleanCachePresented = false
 
-    public init(cleanCacheRequested: Binding<Bool> = .constant(false)) {
+    public init(cleanCacheRequested: Binding<Bool> = .constant(false),
+                cleanupRequested: Binding<Bool> = .constant(false)) {
         _cleanCacheRequested = cleanCacheRequested
+        _cleanupRequested = cleanupRequested
     }
 
     public var body: some View {
@@ -81,7 +88,7 @@ public struct RootView: View {
                             Image(systemName: tab.symbol).foregroundStyle(tab.tint).frame(width: 18)
                             Text(tab.rawValue)
                             Spacer(minLength: 4)
-                            Text(tab.value(store)).font(.caption.monospacedDigit())
+                            Text(tab.value(store, cleanup: cleanup)).font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 3)
@@ -94,6 +101,7 @@ public struct RootView: View {
             let tab = selection ?? .overview
             Group {
                 switch tab {
+                case .cleanup: CleanupView()
                 case .processes: ProcessesView()
                 case .watched: WatchedView()
                 case .endpoints: EndpointsView()
@@ -109,6 +117,11 @@ public struct RootView: View {
             cleanCachePresented = true
             cleanCacheRequested = false
         }
+        .onChange(of: cleanupRequested, initial: true) { _, requested in
+            guard requested else { return }
+            selection = .cleanup
+            cleanupRequested = false
+        }
         .sheet(isPresented: $cleanCachePresented, onDismiss: store.dismissCacheCleanResult) {
             CleanCacheView()
         }
@@ -120,6 +133,6 @@ public struct RootView: View {
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
 #Preview {
-    RootView().frame(width: 1160, height: 740).environment(PreviewData.store)
+    RootView().frame(width: 1160, height: 740).environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #endif

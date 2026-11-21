@@ -3,6 +3,7 @@ import MonitorCore
 
 struct MetricsView: View {
     @Environment(MonitorStore.self) private var store
+    @Environment(CleanupStore.self) private var cleanup
     let tab: MonitorTab
     @Binding var cleanCachePresented: Bool
     var open: (MonitorTab) -> Void = { _ in }
@@ -42,6 +43,16 @@ struct MetricsView: View {
                 overviewCard(.disk, series: diskSeries, sort: .disk)
                 if store.hasBattery { overviewCard(.battery, series: batterySeries) }
                 overviewCard(.capacity, title: "Storage")
+                Button { open(.cleanup) } label: {
+                    Panel(title: "Cleanup", symbol: "sparkles", tint: .mint) {
+                        HStack {
+                            headline(cleanup.lastScan == nil ? "Scan" : Format.bytes(cleanup.reclaimableSize))
+                            Spacer()
+                            Image(systemName: "arrow.up.right").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
                 overviewCard(.endpoints, value: "\(tab.endpointCount(.up, store)) up · \(tab.endpointCount(.down, store)) down")
             }
         }
@@ -51,7 +62,7 @@ struct MetricsView: View {
                               series: [MetricChart.Series] = [], sort: MonitorStore.ProcessSort? = nil) -> some View {
         Panel(title: title ?? destination.rawValue, symbol: destination.symbol, tint: destination.tint) {
             HStack {
-                headline(value ?? destination.value(store))
+                headline(value ?? destination.value(store, cleanup: cleanup))
                 Spacer()
                 Button { open(destination) } label: { Image(systemName: "arrow.up.right") }
                     .buttonStyle(.borderless)
@@ -292,6 +303,10 @@ struct MetricsView: View {
                     }
                     Breakdown(parts: volumeParts(volume))
                     Text(volume.mountPath).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    if volume.isRoot {
+                        Button("Free Up Space", systemImage: "sparkles") { open(.cleanup) }
+                            .tint(.mint)
+                    }
                 }
             }
         }
@@ -330,10 +345,10 @@ struct MetricsView: View {
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
 #Preview("Overview") {
-    MetricsView(tab: .overview, cleanCachePresented: .constant(false)).frame(width: 890, height: 700).environment(PreviewData.store)
+    MetricsView(tab: .overview, cleanCachePresented: .constant(false)).frame(width: 890, height: 700).environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #Preview("Memory") {
     MetricsView(tab: .memory, cleanCachePresented: .constant(false))
-        .frame(width: 760, height: 700).environment(PreviewData.store)
+        .frame(width: 760, height: 700).environment(PreviewData.store).environment(PreviewData.cleanup)
 }
 #endif
