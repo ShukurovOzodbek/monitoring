@@ -15,6 +15,8 @@ let package = Package(
         .executable(name: "MonitoringApp", targets: ["MonitoringApp"]),
         .library(name: "MonitorCore", targets: ["MonitorCore"]),
         .library(name: "MonitorUI", targets: ["MonitorUI"]),
+        .executable(name: "ClipboardAgent", targets: ["ClipboardAgent"]),
+        .library(name: "ClipboardCore", targets: ["ClipboardCore"]),
     ],
     targets: [
         // System sampling, models, store, actions. Owned by Claude.
@@ -31,12 +33,29 @@ let package = Package(
         // App entry point (@main). Owned by Codex.
         .executableTarget(
             name: "MonitoringApp",
-            dependencies: ["MonitorCore", "MonitorUI"],
+            dependencies: ["MonitorCore", "MonitorUI", "ClipboardCore"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Clipboard history: watcher, 24 h store, hotkey, launch agent. Owned by Claude.
+        .target(
+            name: "ClipboardCore",
+            linkerSettings: [.linkedFramework("Carbon")]
+        ),
+        // SwiftUI panel shown on Option+V. Owned by Codex.
+        .target(
+            name: "ClipboardUI",
+            dependencies: ["ClipboardCore"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Background helper (no Dock icon) kept alive by launchd. Owned by Claude.
+        .executableTarget(
+            name: "ClipboardAgent",
+            dependencies: ["ClipboardCore", "ClipboardUI"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "MonitorCoreTests",
-            dependencies: ["MonitorCore"]
+            dependencies: ["MonitorCore", "ClipboardCore"]
         ),
     ]
 )
