@@ -64,7 +64,9 @@ final class ProcessNetworkMonitor: @unchecked Sendable {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
         proc.arguments = ["-c", Self.watchdogScript]
-        proc.standardOutput = FileHandle(fileDescriptor: slave, closeOnDealloc: true)
+        // We close `slave` ourselves right after launch. closeOnDealloc must stay false:
+        // a second close() when the handle deallocates would hit whatever fd reused the number.
+        proc.standardOutput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
         proc.standardError = FileHandle.nullDevice
         proc.standardInput = FileHandle.nullDevice
         do {
