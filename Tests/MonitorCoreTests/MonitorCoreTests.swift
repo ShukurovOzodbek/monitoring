@@ -169,3 +169,129 @@ struct LiveSamplingTests {
         #expect(info.osVersion.hasPrefix("macOS "))
     }
 }
+
+@Suite("Disk cleanup")
+struct CleanupTests {
+    let home = CleanupPaths.home
+
+    @Test func guardAllowsOnlyCleanupLocations() {
+        func allowed(_ path: String, _ category: CleanupCategoryKind? = .userCaches) -> Bool {
+            CleanupGuard.isAllowed(URL(fileURLWithPath: path), category: category)
+        }
+        #expect(allowed(home.path + "/Library/Caches/com.example.app"))
+        #expect(!allowed(home.path + "/Library/Caches"), "root itself is never deleted")
+        #expect(allowed("/tmp/leftover", .temporaryFiles), "/tmp is normalized to /private/tmp")
+        #expect(!allowed("/System/Library/Caches/x"))
+        #expect(!allowed("/Applications/Safari.app"))
+        #expect(!allowed(home.path + "/Library/Caches/../Preferences/x"))
+        #expect(!allowed(home.path + "/Documents", .largeFiles))
+        #expect(!allowed(home.path, .largeFiles))
+        #expect(allowed(home.path + "/Movies/huge.mov", .largeFiles))
+        #expect(!allowed(home.path + "/Library/Mobile Documents/x.mov", .largeFiles), "iCloud Drive is off limits")
+        #expect(!allowed(home.path + "/Movies/huge.mov", .userCaches), "only large files may target the home folder")
+        #expect(allowed("/private/var/vm/sleepimage", .sleepImage))
+        #expect(!allowed("/private/var/vm/sleepimage", .userCaches))
+        #expect(!allowed("/private/var/vm/swapfile0", .swap))
+        #expect(!CleanupGuard.isAllowed(URL(string: "snapshot:///com.apple.TimeMachine.x")!, category: .localSnapshots))
+    }
+
+    @Test func openFilesPrefixMatching() {
+        let open = OpenFiles(paths: ["/tmp/a/b.sock", "/private/var/folders/x/C/app/db.sqlite", "/Users/u/file"])
+        #expect(open.containsOpenFile(under: URL(fileURLWithPath: "/private/tmp/a")))
+        #expect(open.containsOpenFile(under: URL(fileURLWithPath: "/var/folders/x/C/app")))
+        #expect(!open.containsOpenFile(under: URL(fileURLWithPath: "/private/tmp/ab")))
+        #expect(!open.containsOpenFile(under: URL(fileURLWithPath: "/Users/u/fil")))
+        #expect(open.containsOpenFile(under: URL(fileURLWithPath: "/Users/u/file")))
+        let unknown = OpenFiles(paths: [], isReliable: false)
+        #expect(unknown.containsOpenFile(under: URL(fileURLWithPath: "/private/tmp/anything")), "fails closed")
+        #expect(OpenFiles.snapshot().isReliable)
+    }
+
+    @Test func shellQuoting() {
+        #expect(CleanupExecutor.quote("/tmp/it's here") == #"'/tmp/it'\''s here'"#)
+        let item = CleanupItem(url: URL(fileURLWithPath: "/Library/Caches/a b"), name: "a b", category: .systemCaches,
+                               size: 1, fileCount: 1, modified: nil, isDirectory: true, requiresAdmin: true,
+                               removal: .emptyFolder, skipReason: nil, recommended: true)
+        let line = CleanupExecutor.adminScript(for: [item])[0]
+        #expect(line.hasPrefix("/usr/bin/find '/Library/Caches/a b' -mindepth 1 -maxdepth 1"))
+    }
+
+    @Test func snapshotNames() {
+        let output = """
+        Snapshots for volume group containing disk /:
+        com.apple.TimeMachine.2026-11-20-101010.local
+        com.apple.os.update-5514FF97DEE9C60C
+        """
+        let names = CleanupScanner.parseSnapshots(output)
+        #expect(names.count == 2)
+        #expect(CleanupScanner.timeMachineSnapshotDate(names[0]) == "2026-11-20-101010")
+        #expect(CleanupScanner.timeMachineSnapshotDate(names[1]) == nil)
+    }
+
+    @Test func deletesFreeItemsAndKeepsOpenOnes() async throws {
+        let fm = FileManager.default
+        let root = try #require(CleanupPaths.userTemp).appendingPathComponent("cleanup-test-\(UUID().uuidString)")
+        let freeFolder = root.appendingPathComponent("free")
+        let busyFolder = root.appendingPathComponent("busy")
+        try fm.createDirectory(at: freeFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: busyFolder, withIntermediateDirectories: true)
+        try Data(count: 50_000).write(to: freeFolder.appendingPathComponent("a.bin"))
+        try Data(count: 50_000).write(to: busyFolder.appendingPathComponent("open.bin"))
+        try Data(count: 10_000).write(to: busyFolder.appendingPathComponent("closed.bin"))
+        defer { try? fm.removeItem(at: root) }
+        let handle = try FileHandle(forReadingFrom: busyFolder.appendingPathComponent("open.bin"))
+        defer { try? handle.close() }
+
+        let context = CleanupContext.current(runningBundleIDs: [])
+        func item(_ url: URL, _ removal: CleanupItem.Removal) -> CleanupItem {
+            CleanupItem(url: url, name: url.lastPathComponent, category: .temporaryFiles,
+                        size: DiskUsage.stats(of: url).size, fileCount: 1, modified: nil, isDirectory: true,
+                        requiresAdmin: false, removal: removal, skipReason: nil, recommended: true)
+        }
+        let report = try await CleanupExecutor.run(
+            items: [item(freeFolder, .removeItem), item(busyFolder, .removeItem),
+                    item(busyFolder.appendingPathComponent("closed.bin"), .removeItem)],
+            userDataMode: .delete, context: context, progress: { _ in })
+
+        #expect(!fm.fileExists(atPath: freeFolder.path))
+        #expect(fm.fileExists(atPath: busyFolder.appendingPathComponent("open.bin").path), "open file must survive")
+        #expect(!fm.fileExists(atPath: busyFolder.appendingPathComponent("closed.bin").path))
+        #expect(report.itemsRemoved == 2)
+        #expect(report.skipped.map(\.name) == ["busy"])
+        #expect(report.bytesDeleted >= 60_000)
+    }
+
+    @Test func emptyFolderKeepsFolderAndOpenFiles() async throws {
+        let fm = FileManager.default
+        let root = try #require(CleanupPaths.userTemp).appendingPathComponent("cleanup-test-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(count: 20_000).write(to: root.appendingPathComponent("old.bin"))
+        try Data(count: 20_000).write(to: root.appendingPathComponent("open.bin"))
+        defer { try? fm.removeItem(at: root) }
+        let handle = try FileHandle(forReadingFrom: root.appendingPathComponent("open.bin"))
+        defer { try? handle.close() }
+
+        let item = CleanupItem(url: root, name: "cache", category: .userCaches, size: 40_000, fileCount: 2, modified: nil,
+                               isDirectory: true, requiresAdmin: false, removal: .emptyFolder, skipReason: nil, recommended: true)
+        let result = CleanupExecutor.removeUserItems([item], mode: .delete, context: .current(runningBundleIDs: []))
+        #expect(fm.fileExists(atPath: root.path))
+        #expect(!fm.fileExists(atPath: root.appendingPathComponent("old.bin").path))
+        #expect(fm.fileExists(atPath: root.appendingPathComponent("open.bin").path))
+        #expect(result.skipped.first?.reason.contains("in use") == true)
+    }
+
+    @Test func liveScanFindsSpaceAndProtectsLiveItems() async {
+        let context = CleanupContext.current(runningBundleIDs: [])
+        #expect(context.openFiles.count > 100)
+        let temp = await CleanupScanner.scan(.temporaryFiles, context: context)
+        #expect(temp.state == .ready)
+        // Live sockets in /tmp (databases, agents) must never be selectable.
+        for item in temp.items where item.name.hasPrefix(".s.") || item.name.hasPrefix("com.apple.launchd") {
+            #expect(!item.isRemovable, "\(item.name) must be protected")
+        }
+        let caches = await CleanupScanner.scan(.userCaches, context: context)
+        #expect(caches.items.contains { $0.name.hasPrefix("com.apple.") && $0.skipReason == .protected })
+        let swap = CleanupScanner.swap()
+        #expect(swap.items.allSatisfy { !$0.isRemovable })
+    }
+}
