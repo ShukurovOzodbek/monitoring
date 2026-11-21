@@ -127,7 +127,9 @@ enum CleanupExecutor {
         guard FileManager.default.fileExists(atPath: item.url.path) || isBrokenSymlink(item.url) else {
             return "Already gone"
         }
-        if !item.requiresAdmin, context.openFiles.containsOpenFile(under: item.url) {
+        // Also for admin items: catches files our own apps hold open (root daemons are
+        // invisible to a non-root lsof, which is why restart cleanup skips admin items).
+        if context.openFiles.containsOpenFile(under: item.url) {
             return CleanupSkipReason.inUse.description
         }
         if [.userCaches, .systemCaches].contains(item.category),

@@ -127,7 +127,9 @@ enum CleanupScanner {
                                 requiresAdmin: true) { url, _, _ in
             let name = url.lastPathComponent
             let protected = name.hasPrefix("com.apple.") || ["ColorSync", "Desktop Pictures"].contains(name)
-            return (protected ? .protected : nil, isDirectory(url) ? .emptyFolder : .removeItem, true, nil)
+            // Root daemons may have these open and a non-root lsof can't see them: review only.
+            return (protected ? .protected : nil, isDirectory(url) ? .emptyFolder : .removeItem, false,
+                    "Shared by all users")
         }
         return CleanupCategory(kind: .systemCaches, state: .ready, items: sorted(items), location: CleanupPaths.userCache)
     }
