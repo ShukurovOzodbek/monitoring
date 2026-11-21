@@ -65,7 +65,7 @@ struct EndpointsView: View {
                 if checking.contains(endpoint.id) { ProgressView().controlSize(.small) }
                 Menu {
                     Button("Check Now", systemImage: "arrow.clockwise") { check(endpoint) }
-                        .disabled(checking.contains(endpoint.id) || store === PreviewData.store)
+                        .disabled(checking.contains(endpoint.id) || store.isPreview)
                     Button("Edit", systemImage: "pencil") { editing = Edit(endpoint: endpoint) }
                         .disabled(checking.contains(endpoint.id))
                     Button(endpoint.isEnabled ? "Disable" : "Enable", systemImage: endpoint.isEnabled ? "pause" : "play") {
@@ -91,7 +91,7 @@ struct EndpointsView: View {
             LabeledContent("Average latency", value: status.averageLatency.map(Format.latency) ?? "—")
             MetricChart(series: [.init(name: "Average latency", points: averages, color: .blue)], compact: true)
                 .accessibilityLabel("Average latency history")
-            if let error = status.history.last(where: { $0.error != nil })?.error ?? status.lastCheck?.error {
+            if let check = status.lastCheck, !check.isUp, let error = check.error {
                 Label(error, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red)
             }
         }
