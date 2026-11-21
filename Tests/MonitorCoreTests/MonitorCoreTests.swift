@@ -19,24 +19,16 @@ struct ParserTests {
         #expect(rows.count == 2)
     }
 
-    @Test func nettopSkipsCumulativeBlockAndSumsDeltas() {
-        var parser = NettopParser()
-        let lines = [
-            ",bytes_in,bytes_out,",          // block 1 header (cumulative)
-            "mDNSResponder.519,208291959,179102546,",
-            ",bytes_in,bytes_out,\r",        // block 2 header (pty adds \r)
-            "Safari.900,1000,200,",
-            "Some.Helper.900,24,0,",         // same pid twice -> summed
-            "cloudd.25557,0,10,",
-            ",bytes_in,bytes_out,",          // block 3 header -> emits block 2
-        ]
-        var emitted: [[Int32: (in: Double, out: Double)]] = []
-        for line in lines { if let block = parser.consume(line) { emitted.append(block) } }
-        #expect(emitted.count == 1)
-        #expect(emitted[0][900]?.in == 1024)
-        #expect(emitted[0][900]?.out == 200)
-        #expect(emitted[0][25557]?.out == 10)
-        #expect(emitted[0][519] == nil)
+    @Test func nettopSnapshotsBecomeRates() {
+        let first = NettopParser.parseSnapshot(",bytes_in,bytes_out,\nSafari.900,1000,200,\nSome.Helper.900,24,0,\ncloudd.25557,500,10,\ngarbage\n")
+        #expect(first[900]?.in == 1024, "same pid on two rows is summed; dotted names parse")
+        #expect(first[25557]?.out == 10)
+        let second = NettopParser.parseSnapshot("Safari.900,3024,600,\nSome.Helper.900,24,0,\ncloudd.25557,100,10,\nnew.77,50,50,\n")
+        let rates = NettopParser.rates(from: first, to: second, seconds: 2)
+        #expect(rates[900]?.in == 1012, "(3024+24 - (1000+24)) / 2 s")
+        #expect(rates[900]?.out == 200)
+        #expect(rates[25557] == nil, "closed connections lower the counter: 0, not negative")
+        #expect(rates[77] == nil, "no rate until a process has two snapshots")
     }
 
     @Test func pingRTT() {
@@ -149,17 +141,14 @@ struct LiveSamplingTests {
         }
     }
 
-    @Test func perProcessNetworkStream() async throws {
+    @Test func perProcessNetworkSnapshots() async throws {
         let monitor = ProcessNetworkMonitor()
-        monitor.start()
-        defer { monitor.stop() }
-        // First delta block arrives ~2-3 s after start.
-        var rates: [Int32: (in: Double, out: Double)] = [:]
-        for _ in 0..<12 where rates.isEmpty {
-            try await Task.sleep(for: .milliseconds(500))
-            rates = monitor.rates
-        }
-        #expect(!rates.isEmpty, "nettop delta blocks should arrive within 6 s")
+        monitor.update()
+        try await Task.sleep(for: .seconds(ProcessNetworkMonitor.minimumInterval + 0.2))
+        // Generate some traffic so at least this process shows a rate.
+        _ = try? await URLSession.shared.data(from: URL(string: "https://www.apple.com")!)
+        monitor.update()
+        #expect(!monitor.rates.isEmpty, "two snapshots should yield rates for active processes")
     }
 
     @Test func systemInfo() {
