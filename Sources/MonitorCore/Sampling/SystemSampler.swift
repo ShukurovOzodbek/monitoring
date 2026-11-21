@@ -20,6 +20,7 @@ actor SystemSampler {
     func sample() -> SystemSnapshot {
         let now = Date()
         let processList = processes.sample(networkRates: processNetwork.rates)
+        Self.killRunawayNettop(in: processList)
 
         var battery: BatterySnapshot?
         if hasBattery, now.timeIntervalSince(lastBatteryDate) >= 5 {
@@ -43,6 +44,21 @@ actor SystemSampler {
             volumes: volumes,
             processes: processList
         )
+    }
+
+    /// nettop spins at 100%+ CPU once its terminal is gone (it retries the failed
+    /// write forever). A healthy one uses about 1%. Kill any that belong to this app
+    /// (child of our watchdog shell) or were orphaned by an earlier build (parent
+    /// launchd). The monitor restarts a fresh one. Someone's own interactive nettop
+    /// in Terminal is left alone.
+    static func killRunawayNettop(in processes: [ProcessSample]) {
+        let me = getpid()
+        let ourWrappers = Set(processes.filter { $0.parentPID == me }.map(\.pid))
+        for process in processes where process.name == "nettop" && process.cpuPercent > 50
+            && process.user == NSUserName()
+            && (process.parentPID == 1 || ourWrappers.contains(process.parentPID)) {
+            kill(process.pid, SIGKILL)
+        }
     }
 
     /// Forces battery and volumes to be re-read on the next tick.
