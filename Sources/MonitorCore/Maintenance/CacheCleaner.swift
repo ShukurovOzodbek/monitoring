@@ -99,7 +99,8 @@ enum CacheCleaner {
     /// Empties each folder in ~/Library/Caches (keeping the folder itself) unless
     /// it belongs to a running app or is protected.
     static func cleanUserCaches(runningBundleIDs: Set<String>,
-                                cachesURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]) -> UserCacheResult {
+                                cachesURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0],
+                                openFiles: OpenFiles = .snapshot()) -> UserCacheResult {
         let fm = FileManager.default
         var result = UserCacheResult()
         let running = Set(runningBundleIDs.map { $0.lowercased() })
@@ -122,6 +123,8 @@ enum CacheCleaner {
             var freedHere: UInt64 = 0
             var failures = 0
             for target in targets {
+                // Never pull files out from under a process that has them open.
+                if openFiles.containsOpenFile(under: target) { continue }
                 let size = allocatedSize(of: target)
                 do {
                     try fm.removeItem(at: target)
