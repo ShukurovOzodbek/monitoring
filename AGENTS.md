@@ -14,6 +14,8 @@ Two coding agents work in this repo. The owner decides who writes what.
 | SwiftUI views, preview fixtures, design | Codex | `Sources/MonitorUI/**` |
 | App entry point, menu bar scene, settings scene | Codex | `Sources/MonitoringApp/**` |
 | Build/bundle scripts, app icon, README | Codex | `scripts/**`, `Resources/**`, `README.md` |
+| Clipboard history logic and background helper | Claude | `Sources/ClipboardCore/**`, `Sources/ClipboardAgent/**` |
+| Clipboard panel UI (⌥V) | Codex | `Sources/ClipboardUI/**` |
 
 If the UI needs something MonitorCore doesn't provide, don't work around it in the
 UI. Write the request in `docs/CORE_REQUESTS.md` (what and why), and the owner
@@ -96,3 +98,25 @@ until `await cleanup.scan()`. Call it when the Cleanup tab first appears, plus a
   - `revealInFinder(url)`, `open(url)`, and `openFullDiskAccessSettings()` (for
     `.needsFullDiskAccess` categories).
 - Previews: `CleanupStore(preview:freeSpace:selection:runState:)` takes fixture categories. `isPreview` is true there.
+
+## Clipboard history (`ClipboardCore`, separate helper process)
+
+A background helper (`ClipboardAgent`, bundled as `Monitoring Clipboard.app`) records copied
+text for 24 hours and shows a panel on ⌥V. launchd keeps it alive (RunAtLoad + KeepAlive). It
+runs even when Monitoring is closed and refuses polite quits such as Swift Quit's. It's
+installed as `~/Library/LaunchAgents/com.ozodbek.monitoring.clipboard.plist`.
+
+- `ClipboardHistory` (`@MainActor @Observable`): `entries` (newest first, at most 24 h old),
+  `search(_:)`, `remove(id:)`, `clear()`. `ClipboardEntry` has `text`, `title` (first
+  non-empty line), `lineCount`, `date`, `sourceAppName`, and `sourceBundleID`. Previews:
+  `ClipboardHistory(preview: [ClipboardEntry])`.
+- `ClipboardPanelView(history:canAutoPaste:onPick:onDelete:onClose:onEnableAutoPaste:)` in
+  ClipboardUI is the panel content. The helper hosts it in a floating panel. Keep this
+  initializer signature.
+- In the Monitoring app:
+  - `ClipboardAgentInstaller.ensureInstalled()` at launch (no-op when unbundled).
+  - `status()` returns `.notInstalled/.installedNotRunning/.running(pid:)`.
+  - `setEnabled(_:)` and `isDisabledByUser`.
+  - Post `ClipboardMessages.showPanel` or `ClipboardMessages.clear` with
+    `DistributedNotificationCenter.default().postNotificationName(_:object:deliverImmediately: true)`
+    to open the panel or clear history in the helper.
