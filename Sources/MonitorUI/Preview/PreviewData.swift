@@ -1,6 +1,7 @@
 import Foundation
 import MonitorCore
 
+#if DEBUG && !MONITORING_SKIP_PREVIEWS
 @MainActor
 public enum PreviewData {
     private static let date = Date(timeIntervalSince1970: 1_791_106_200)
@@ -100,7 +101,13 @@ public enum PreviewData {
         ]
         let snapshot = SystemSnapshot(date: date, cpu: cpu, memory: memory, network: network, disk: disk,
                                       battery: battery, hasBattery: true, volumes: volumes, processes: processes)
-        let history = MetricHistory(cpu: points(24.8, variation: 18), memoryUsed: points(11.8e9, variation: 0.45e9),
+        let userHistory = points(18.6, variation: 14)
+        let systemHistory = points(6.2, variation: 4, phase: 1)
+        let totalHistory = zip(userHistory, systemHistory).map { user, system in
+            MetricPoint(date: user.date, value: user.value + system.value)
+        }
+        let history = MetricHistory(cpu: totalHistory, cpuUser: userHistory, cpuSystem: systemHistory,
+                                    memoryUsed: points(11.8e9, variation: 0.45e9),
                                     networkIn: points(1.3e6, variation: 1.5e6), networkOut: points(280e3, variation: 420e3, phase: 3),
                                     diskRead: points(4.8e6, variation: 5.3e6, phase: 1), diskWrite: points(2.1e6, variation: 2.8e6, phase: 4),
                                     batteryLevel: (0..<120).map {
@@ -122,7 +129,10 @@ public enum PreviewData {
             return (endpoint.id, EndpointStatus(state: index < 2 ? .up : .down, lastCheck: checks.last, history: checks))
         })
         return MonitorStore(preview: snapshot, systemInfo: info, history: history,
+                            processHistory: [processes[0].pid: processHistory],
+                            watchedHistory: ["Google Chrome": processHistory],
                             watchedProcessNames: ["Google Chrome", "Final Cut Pro"],
                             endpoints: endpoints, endpointStatuses: statuses)
     }()
 }
+#endif

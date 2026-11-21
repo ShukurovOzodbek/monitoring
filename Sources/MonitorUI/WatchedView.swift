@@ -4,7 +4,6 @@ import MonitorCore
 struct WatchedView: View {
     @Environment(MonitorStore.self) private var store
     @State private var showPicker = false
-    var previewHistory: [String: [ProcessHistoryPoint]] = [:]
 
     var body: some View {
         Group {
@@ -21,7 +20,7 @@ struct WatchedView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 310), spacing: 16)], spacing: 16) {
                         ForEach(store.watchedProcessNames, id: \.self) { name in
                             let matches = store.processes(named: name)
-                            let points = previewHistory[name] ?? store.watchedHistory[name] ?? []
+                            let points = store.watchedHistory[name] ?? []
                             Panel(title: name, symbol: "pin.fill", tint: .pink) {
                                 HStack {
                                     Label(matches.isEmpty ? "Not running" : "\(matches.count) running",
@@ -113,7 +112,7 @@ struct WatchPicker: View {
 
 #if DEBUG && !MONITORING_SKIP_PREVIEWS
 #Preview("Watched") {
-    WatchedView(previewHistory: ["Google Chrome": PreviewData.processHistory])
+    WatchedView()
         .frame(width: 760, height: 570).environment(PreviewData.store)
 }
 #Preview("Watch picker") {

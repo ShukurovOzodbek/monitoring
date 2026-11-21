@@ -103,8 +103,14 @@ struct ProcessesView: View {
     private var rows: [ProcessRow] {
         let comparator = sort.first ?? KeyPathComparator(\ProcessRow.cpu, order: .reverse)
         let searchTerm = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = store.sortedProcesses(by: coreSort(for: comparator), matching: searchTerm)
-        let sorted = matches.map { ProcessRow(process: $0) }.sorted(using: sort)
+        let coreOrder = coreSort(for: comparator)
+        let matches = store.sortedProcesses(by: coreOrder, matching: searchTerm)
+        let processRows = matches.map { ProcessRow(process: $0) }
+        let coreOrderMatches = sort.count == 1 && (
+            (comparator.order == .reverse && (coreOrder == .memory || comparator.keyPath == \ProcessRow.cpu))
+                || (comparator.order == .forward && coreOrder == .pid)
+        )
+        let sorted = coreOrderMatches ? processRows : processRows.sorted(using: sort)
         guard grouped else { return sorted }
         let matchingPIDs = Set(matches.map(\.pid))
         let groups = store.processGroups.filter { $0.processes.contains { matchingPIDs.contains($0.pid) } }
@@ -142,7 +148,6 @@ struct ProcessInspector: View {
 
     @Environment(MonitorStore.self) private var store
     let process: ProcessSample
-    var previewHistory: [ProcessHistoryPoint]? = nil
     @State private var force = false
     @State private var working = false
     @State private var prompt: Prompt?
@@ -151,7 +156,7 @@ struct ProcessInspector: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Image(nsImage: ProcessIcons.image(bundle: process.appBundlePath, executable: process.executablePath))
+                Image(nsImage: ProcessIcons.image(bundle: process.appBundlePath, executable: process.executablePath, size: 42))
                     .resizable().frame(width: 42, height: 42).accessibilityHidden(true)
                 Text(process.name).font(.title2.weight(.semibold))
                 Text("PID \(process.pid) · \(process.user)").font(.callout).foregroundStyle(.secondary)
@@ -161,7 +166,7 @@ struct ProcessInspector: View {
                 Text(process.executablePath ?? "Path unavailable")
                     .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 Divider()
-                let points = previewHistory ?? store.processHistory[process.pid] ?? []
+                let points = store.processHistory[process.pid] ?? []
                 Text("CPU · \(Format.percent(process.cpuPercent))").font(.headline)
                 MetricChart(series: [.init(name: "CPU", points: points.map {
                     MetricPoint(date: $0.date, value: $0.cpuPercent)
@@ -179,7 +184,7 @@ struct ProcessInspector: View {
                     Button("Quit") { confirm(force: false) }
                     Button("Force Quit") { confirm(force: true) }.foregroundStyle(.red)
                 }
-                .disabled(working || store === PreviewData.store)
+                .disabled(working || store.isPreview)
             }
             .padding(18)
         }
@@ -233,7 +238,7 @@ struct ProcessInspector: View {
     ProcessesView().frame(width: 1050, height: 620).environment(PreviewData.store)
 }
 #Preview("Process inspector") {
-    ProcessInspector(process: PreviewData.processes[0], previewHistory: PreviewData.processHistory)
+    ProcessInspector(process: PreviewData.processes[0])
         .frame(width: 320, height: 570).environment(PreviewData.store)
 }
 #endif
